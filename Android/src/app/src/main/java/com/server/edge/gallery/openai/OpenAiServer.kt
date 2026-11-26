@@ -176,7 +176,8 @@ class OpenAiServer(
             val engine = EmbeddingEngine(
                 EmbeddingEngineConfig(
                     modelPath = modelFile.absolutePath,
-                    backend = Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
+                    backend = Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir),
+                    cacheDir = context.cacheDir.absolutePath
                 )
             )
             engine.initialize()
