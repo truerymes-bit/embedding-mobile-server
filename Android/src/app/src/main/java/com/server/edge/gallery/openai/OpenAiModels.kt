@@ -159,7 +159,8 @@ data class CompletionChunkChoice(
 data class EmbeddingRequest(
     val model: String,
     val input: JsonElement,
-    val input_type: String? = null
+    val input_type: String? = null,
+    val dimensions: Int? = null
 )
 
 @Serializable
