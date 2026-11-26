@@ -75,7 +75,7 @@ android {
   }
 
   // Qualcomm LiteRT NPU plugins are discovered by scanning nativeLibraryDir.
-  packagingOptions.jniLibs.useLegacyPackaging = true
+  // AndroidManifest.xml already sets android:extractNativeLibs="true".
 
   packagingOptions.pickFirsts.add("META-INF/INDEX.LIST")
   packagingOptions.pickFirsts.add("META-INF/io.netty.versions.properties")
