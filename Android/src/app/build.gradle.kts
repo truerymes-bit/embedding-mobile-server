@@ -75,8 +75,8 @@ android {
   }
 
   // Qualcomm LiteRT NPU plugins are discovered by scanning nativeLibraryDir.
-  // Extract JNI libraries so LiteRT can find the Qualcomm dispatch/compiler plugins.
-  packaging {
+  // Use the legacy DSL supported by this project's AGP version to extract JNI libraries.
+  packagingOptions {
     jniLibs {
       useLegacyPackaging = true
     }
