@@ -74,6 +74,14 @@ android {
     buildConfig = true
   }
 
+  // Qualcomm LiteRT NPU plugins are discovered by scanning nativeLibraryDir.
+  // Extract JNI libraries so LiteRT can find the Qualcomm dispatch/compiler plugins.
+  packaging {
+    jniLibs {
+      useLegacyPackaging = true
+    }
+  }
+
   packagingOptions.pickFirsts.add("META-INF/INDEX.LIST")
   packagingOptions.pickFirsts.add("META-INF/io.netty.versions.properties")
   packagingOptions.pickFirsts.add("META-INF/okio.kotlin_module")
@@ -106,6 +114,11 @@ dependencies {
   implementation(libs.androidx.security.crypto)
   implementation(libs.androidx.webkit)
   implementation(libs.litertlm)
+
+  // LiteRT-LM 0.19.1 requires the QueryInterface dispatch ABI (provided by 2.4.0).
+  implementation("com.google.ai.edge.litert:litert-npu-runtime-qualcomm:2.4.0")
+  // Qualcomm QAIRT 2.50 runtime includes the SM8750 / HTP v79 libraries.
+  implementation("com.qualcomm.qti:qnn-runtime:2.50.0")
   implementation(libs.commonmark)
   implementation(libs.richtext)
   implementation(libs.tflite)
