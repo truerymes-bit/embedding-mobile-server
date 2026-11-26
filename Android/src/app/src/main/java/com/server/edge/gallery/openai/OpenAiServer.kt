@@ -145,6 +145,10 @@ class OpenAiServer(
                 return
             }
         }
+        if (request.dimensions != null && request.dimensions !in setOf(128, 256, 512, 768)) {
+            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "dimensions must be one of 128, 256, 512, or 768"))
+            return
+        }
         try {
             val vectors = embeddingMutex.withLock {
                 val engine = getEmbeddingEngine()
@@ -155,7 +159,7 @@ class OpenAiServer(
                         val prefixedText = if (normalizedText.startsWith("task:") || normalizedText.startsWith("title:")) normalizedText else taskPrefix + normalizedText
                         listOf(InputData.Text(prefixedText))
                     }
-                    engine.computeEmbeddingBatch(contents, EmbeddingOptions(normalize = true)).map { it.embedding.toList() }
+                    engine.computeEmbeddingBatch(contents, EmbeddingOptions(normalize = true, outputSize = request.dimensions)).map { it.embedding.toList() }
                 }
             }
             call.respond(EmbeddingResponse(
