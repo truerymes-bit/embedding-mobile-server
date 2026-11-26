@@ -158,7 +158,7 @@ class EmbeddingModelTask @Inject constructor(
           "Loaded and available at POST /v1/embeddings."
         } else {
           "Load this model from its model card to enable POST /v1/embeddings."
-        )
+        }
       )
       Text("OpenAI model ID: ${EmbeddingModelRuntime.MODEL_ID}")
     }
