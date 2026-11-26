@@ -10,6 +10,7 @@ import com.server.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.EmbeddingEngine
 import com.google.ai.edge.litertlm.EmbeddingEngineConfig
+import com.google.ai.edge.litertlm.EmbeddingOptions
 import com.google.ai.edge.litertlm.InputData
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
@@ -145,12 +146,13 @@ class OpenAiServer(
             val vectors = embeddingMutex.withLock {
                 val engine = getEmbeddingEngine()
                 withContext(Dispatchers.IO) {
-                    inputs.mapIndexed { index, text ->
+                    val contents = inputs.mapIndexed { index, text ->
                         val normalizedText = text.trim()
                         if (normalizedText.isEmpty()) throw IllegalArgumentException("input[" + index + "] must not be empty")
                         val prefixedText = if (normalizedText.startsWith("task:")) normalizedText else taskPrefix + normalizedText
-                        engine.computeEmbedding(listOf(InputData.Text(prefixedText))).embedding.toList()
+                        listOf(InputData.Text(prefixedText))
                     }
+                    engine.computeEmbeddingBatch(contents, EmbeddingOptions(normalize = true)).map { it.embedding.toList() }
                 }
             }
             call.respond(EmbeddingResponse(
@@ -170,7 +172,7 @@ class OpenAiServer(
         return withContext(Dispatchers.IO) {
             embeddingEngine?.let { return@withContext it }
             val modelFile = java.io.File(EMBEDDING_MODEL_PATH)
-            if (!modelFile.isFile) throw IllegalArgumentException("Embedding model file not found: " + EMBEDDING_MODEL_PATH)
+            if (!modelFile.isFile) throw IllegalStateException("Embedding model file not found: " + EMBEDDING_MODEL_PATH)
             val engine = EmbeddingEngine(
                 EmbeddingEngineConfig(
                     modelPath = modelFile.absolutePath,
