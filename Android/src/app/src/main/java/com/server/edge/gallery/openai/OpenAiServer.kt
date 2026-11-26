@@ -7,9 +7,8 @@ import com.server.edge.gallery.data.Model
 import com.server.edge.gallery.data.RuntimeType
 import com.server.edge.gallery.ui.llmchat.LlmChatModelHelper
 import com.server.edge.gallery.ui.modelmanager.ModelManagerViewModel
-import com.google.ai.edge.litertlm.Backend
+import com.server.edge.gallery.customtasks.embeddings.EmbeddingModelRuntime
 import com.google.ai.edge.litertlm.EmbeddingEngine
-import com.google.ai.edge.litertlm.EmbeddingEngineConfig
 import com.google.ai.edge.litertlm.EmbeddingOptions
 import com.google.ai.edge.litertlm.InputData
 import com.google.ai.edge.litertlm.Content
@@ -37,8 +36,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
 private const val TAG = "AGOpenAiServer"
-private const val EMBEDDING_MODEL_ID = "embeddinggemma-2-740m"
-private const val EMBEDDING_MODEL_PATH = "/sdcard/Download/embeddinggemma-2-740m_Qualcomm_SM8750.litertlm"
+private const val EMBEDDING_MODEL_ID = EmbeddingModelRuntime.MODEL_ID
 
 class OpenAiServer(
     private val context: Context,
@@ -46,8 +44,7 @@ class OpenAiServer(
 ) {
     private var server: EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>? = null
     private val modelMutexes = ConcurrentHashMap<String, Mutex>()
-    private val embeddingMutex = Mutex()
-    @Volatile private var embeddingEngine: EmbeddingEngine? = null
+    private val embeddingMutex = EmbeddingModelRuntime.mutex
 
     fun start(port: Int = 8080) {
         if (server != null) return
@@ -79,7 +76,9 @@ class OpenAiServer(
                         .distinctBy { it.name }
                         .map { ModelData(id = it.name, created = System.currentTimeMillis() / 1000) }
                         .toMutableList()
-                    models.add(ModelData(id = EMBEDDING_MODEL_ID, created = System.currentTimeMillis() / 1000))
+                    if (EmbeddingModelRuntime.engine?.isInitialized() == true) {
+                        models.add(ModelData(id = EMBEDDING_MODEL_ID, created = System.currentTimeMillis() / 1000))
+                    }
 
                     call.respond(ModelsListResponse(data = models))
                 }
@@ -90,7 +89,7 @@ class OpenAiServer(
                         .flatMap { it.models }
                         .find { it.name == modelId && it.runtimeType == RuntimeType.LITERT_LM && it.instance != null }
 
-                    if (modelId == EMBEDDING_MODEL_ID) {
+                    if (modelId == EMBEDDING_MODEL_ID && EmbeddingModelRuntime.engine?.isInitialized() == true) {
                         call.respond(ModelData(id = EMBEDDING_MODEL_ID, created = System.currentTimeMillis() / 1000))
                     } else if (model == null) {
                         call.respond(HttpStatusCode.NotFound, mapOf("error" to "Model not found or not initialized"))
@@ -151,7 +150,9 @@ class OpenAiServer(
         }
         try {
             val vectors = embeddingMutex.withLock {
-                val engine = getEmbeddingEngine()
+                val engine = EmbeddingModelRuntime.engine
+                    ?.takeIf { it.isInitialized() }
+                    ?: throw EmbeddingModelNotLoadedException()
                 withContext(Dispatchers.IO) {
                     val contents = inputs.mapIndexed { index, text ->
                         val normalizedText = text.trim()
@@ -166,6 +167,8 @@ class OpenAiServer(
                 model = EMBEDDING_MODEL_ID,
                 data = vectors.mapIndexed { index, vector -> EmbeddingData(index = index, embedding = vector) }
             ))
+        } catch (e: EmbeddingModelNotLoadedException) {
+            call.respond(HttpStatusCode.ServiceUnavailable, mapOf("error" to e.message))
         } catch (e: IllegalArgumentException) {
             call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid embedding input")))
         } catch (e: Exception) {
@@ -174,24 +177,9 @@ class OpenAiServer(
         }
     }
 
-    private suspend fun getEmbeddingEngine(): EmbeddingEngine {
-        embeddingEngine?.let { return it }
-        return withContext(Dispatchers.IO) {
-            embeddingEngine?.let { return@withContext it }
-            val modelFile = java.io.File(EMBEDDING_MODEL_PATH)
-            if (!modelFile.isFile) throw IllegalStateException("Embedding model file not found: " + EMBEDDING_MODEL_PATH)
-            val engine = EmbeddingEngine(
-                EmbeddingEngineConfig(
-                    modelPath = modelFile.absolutePath,
-                    backend = Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir),
-                    cacheDir = context.cacheDir.absolutePath
-                )
-            )
-            engine.initialize()
-            embeddingEngine = engine
-            engine
-        }
-    }
+    private class EmbeddingModelNotLoadedException :
+        Exception("Embedding model is not loaded; load it from the Embeddings task first")
+
     private suspend fun handleChatCompletion(call: ApplicationCall, request: ChatCompletionRequest) {
         val model = modelManagerViewModel.uiState.value.tasks
             .flatMap { it.models }
@@ -472,7 +460,5 @@ class OpenAiServer(
     fun stop() {
         server?.stop(1000, 2000)
         server = null
-        embeddingEngine?.close()
-        embeddingEngine = null
     }
 }
