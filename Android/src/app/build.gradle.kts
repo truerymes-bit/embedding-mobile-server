@@ -75,12 +75,7 @@ android {
   }
 
   // Qualcomm LiteRT NPU plugins are discovered by scanning nativeLibraryDir.
-  // Use the legacy DSL supported by this project's AGP version to extract JNI libraries.
-  packagingOptions {
-    jniLibs {
-      useLegacyPackaging = true
-    }
-  }
+  packagingOptions.jniLibs.useLegacyPackaging = true
 
   packagingOptions.pickFirsts.add("META-INF/INDEX.LIST")
   packagingOptions.pickFirsts.add("META-INF/io.netty.versions.properties")
