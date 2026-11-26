@@ -69,10 +69,6 @@ android {
     sourceCompatibility = JavaVersion.VERSION_11
     targetCompatibility = JavaVersion.VERSION_11
   }
-  kotlinOptions {
-    jvmTarget = "11"
-    freeCompilerArgs += "-Xcontext-receivers"
-  }
   buildFeatures {
     compose = true
     buildConfig = true
@@ -81,6 +77,13 @@ android {
   packagingOptions.pickFirsts.add("META-INF/INDEX.LIST")
   packagingOptions.pickFirsts.add("META-INF/io.netty.versions.properties")
   packagingOptions.pickFirsts.add("META-INF/okio.kotlin_module")
+}
+
+kotlin {
+  compilerOptions {
+    jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+    freeCompilerArgs.add("-Xcontext-receivers")
+  }
 }
 
 dependencies {
@@ -129,6 +132,7 @@ dependencies {
   implementation(libs.ktor.serialization.kotlinx.json)
   implementation(libs.ktor.server.cors)
   kapt(libs.hilt.android.compiler)
+  kapt(libs.kotlin.metadata.jvm)
   testImplementation(libs.junit)
   androidTestImplementation(libs.androidx.junit)
   androidTestImplementation(libs.androidx.espresso.core)
