@@ -33,3 +33,11 @@ jobs:
       - name: Build debug APK
         working-directory: Android/src
         run: ./gradlew --no-daemon :app:assembleDebug --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: embedding-mobile-server-debug-apk
+          path: Android/src/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
