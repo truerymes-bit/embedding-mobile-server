@@ -132,11 +132,14 @@ class OpenAiServer(
             return
         }
         val taskPrefix = when (request.input_type?.lowercase()) {
-            null, "query", "search_query" -> "task: search query | text: "
-            "document", "search_result" -> "task: search result | text: "
-            "classification" -> "task: classification | text: "
-            "clustering" -> "task: clustering | text: "
-            "similarity", "sentence_similarity" -> "task: sentence similarity | text: "
+            null, "query", "search_query" -> "task: search result | query: "
+            "document", "search_result" -> "title: none | text: "
+            "classification" -> "task: classification | query: "
+            "clustering" -> "task: clustering | query: "
+            "similarity", "sentence_similarity" -> "task: sentence similarity | query: "
+            "question_answering" -> "task: question answering | query: "
+            "fact_checking" -> "task: fact checking | query: "
+            "code_retrieval" -> "task: code retrieval | query: "
             else -> {
                 call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Unsupported input_type"))
                 return
@@ -149,7 +152,7 @@ class OpenAiServer(
                     val contents = inputs.mapIndexed { index, text ->
                         val normalizedText = text.trim()
                         if (normalizedText.isEmpty()) throw IllegalArgumentException("input[" + index + "] must not be empty")
-                        val prefixedText = if (normalizedText.startsWith("task:")) normalizedText else taskPrefix + normalizedText
+                        val prefixedText = if (normalizedText.startsWith("task:") || normalizedText.startsWith("title:")) normalizedText else taskPrefix + normalizedText
                         listOf(InputData.Text(prefixedText))
                     }
                     engine.computeEmbeddingBatch(contents, EmbeddingOptions(normalize = true)).map { it.embedding.toList() }
