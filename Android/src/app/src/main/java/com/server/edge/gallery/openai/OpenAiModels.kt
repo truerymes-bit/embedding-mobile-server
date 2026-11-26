@@ -1,6 +1,7 @@
 package com.server.edge.gallery.openai
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 @Serializable
 data class ChatCompletionRequest(
@@ -152,4 +153,25 @@ data class CompletionChunkChoice(
     val index: Int,
     val text: String,
     val finish_reason: String? = null
+)
+
+@Serializable
+data class EmbeddingRequest(
+    val model: String,
+    val input: JsonElement,
+    val input_type: String? = null
+)
+
+@Serializable
+data class EmbeddingResponse(
+    val `object`: String = "list",
+    val data: List<EmbeddingData>,
+    val model: String
+)
+
+@Serializable
+data class EmbeddingData(
+    val `object`: String = "embedding",
+    val index: Int,
+    val embedding: List<Float>
 )
