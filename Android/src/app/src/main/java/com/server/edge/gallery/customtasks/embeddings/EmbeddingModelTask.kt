@@ -170,5 +170,5 @@ class EmbeddingModelTask @Inject constructor(
 internal object EmbeddingModelTaskModule {
   @Provides
   @IntoSet
-  fun provideTask(): CustomTask = EmbeddingModelTask()
+  fun provideTask(@ApplicationContext context: Context): CustomTask = EmbeddingModelTask(context)
 }
