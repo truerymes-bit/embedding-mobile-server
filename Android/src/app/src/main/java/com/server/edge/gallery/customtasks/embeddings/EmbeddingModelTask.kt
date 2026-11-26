@@ -2,6 +2,7 @@ package com.server.edge.gallery.customtasks.embeddings
 
 import android.content.Context
 import android.util.Log
+import dagger.hilt.android.qualifiers.ApplicationContext
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -39,7 +40,6 @@ private const val TAG = "EmbeddingModelTask"
 
 object EmbeddingModelRuntime {
   const val MODEL_ID = "embeddinggemma-2-740m"
-  const val MODEL_PATH = "/sdcard/Download/embeddinggemma-2-740m_Qualcomm_SM8750.litertlm"
 
   /** Shared lock prevents inference from racing model initialization or cleanup. */
   val mutex = Mutex()
@@ -48,14 +48,19 @@ object EmbeddingModelRuntime {
   var engine: EmbeddingEngine? = null
 }
 
-class EmbeddingModelTask @Inject constructor() : CustomTask {
+class EmbeddingModelTask @Inject constructor(
+  @ApplicationContext context: Context,
+) : CustomTask {
+  private val modelFileName = "embeddinggemma-2-740m_Qualcomm_SM8750.litertlm"
+  private val modelFilePath =
+    File(context.getExternalFilesDir(null) ?: context.filesDir, modelFileName).absolutePath
   private val embeddingModel =
     Model(
       name = EmbeddingModelRuntime.MODEL_ID,
       displayName = "EmbeddingGemma 2 740M",
-      info = "On-device text embedding model using the Qualcomm NPU. Model file: `/sdcard/Download/embeddinggemma-2-740m_Qualcomm_SM8750.litertlm`.",
-      localModelFilePathOverride = EmbeddingModelRuntime.MODEL_PATH,
-      downloadFileName = "embeddinggemma-2-740m_Qualcomm_SM8750.litertlm",
+      info = "On-device text embedding model using the Qualcomm NPU. Place the model file in the app's external files directory: $modelFilePath.",
+      localModelFilePathOverride = modelFilePath,
+      downloadFileName = modelFileName,
       sizeInBytes = 543522816L,
       showBenchmarkButton = false,
       showRunAgainButton = false,
