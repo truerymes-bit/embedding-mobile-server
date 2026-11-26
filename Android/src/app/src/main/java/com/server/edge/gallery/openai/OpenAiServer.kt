@@ -7,6 +7,10 @@ import com.server.edge.gallery.data.Model
 import com.server.edge.gallery.data.RuntimeType
 import com.server.edge.gallery.ui.llmchat.LlmChatModelHelper
 import com.server.edge.gallery.ui.modelmanager.ModelManagerViewModel
+import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.EmbeddingEngine
+import com.google.ai.edge.litertlm.EmbeddingEngineConfig
+import com.google.ai.edge.litertlm.InputData
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import io.ktor.http.*
@@ -27,8 +31,13 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 private const val TAG = "AGOpenAiServer"
+private const val EMBEDDING_MODEL_ID = "embeddinggemma-2-740m"
+private const val EMBEDDING_MODEL_PATH = "/sdcard/Download/embeddinggemma-2-740m_Qualcomm_SM8750.litertlm"
 
 class OpenAiServer(
     private val context: Context,
@@ -36,6 +45,8 @@ class OpenAiServer(
 ) {
     private var server: EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>? = null
     private val modelMutexes = ConcurrentHashMap<String, Mutex>()
+    private val embeddingMutex = Mutex()
+    @Volatile private var embeddingEngine: EmbeddingEngine? = null
 
     fun start(port: Int = 8080) {
         if (server != null) return
@@ -66,7 +77,9 @@ class OpenAiServer(
                         .filter { it.runtimeType == RuntimeType.LITERT_LM && it.instance != null }
                         .distinctBy { it.name }
                         .map { ModelData(id = it.name, created = System.currentTimeMillis() / 1000) }
-                    
+                        .toMutableList()
+                    models.add(ModelData(id = EMBEDDING_MODEL_ID, created = System.currentTimeMillis() / 1000))
+
                     call.respond(ModelsListResponse(data = models))
                 }
 
@@ -76,7 +89,9 @@ class OpenAiServer(
                         .flatMap { it.models }
                         .find { it.name == modelId && it.runtimeType == RuntimeType.LITERT_LM && it.instance != null }
 
-                    if (model == null) {
+                    if (modelId == EMBEDDING_MODEL_ID) {
+                        call.respond(ModelData(id = EMBEDDING_MODEL_ID, created = System.currentTimeMillis() / 1000))
+                    } else if (model == null) {
                         call.respond(HttpStatusCode.NotFound, mapOf("error" to "Model not found or not initialized"))
                     } else {
                         call.respond(ModelData(id = model.name, created = System.currentTimeMillis() / 1000))
@@ -86,6 +101,10 @@ class OpenAiServer(
                 post("/v1/chat/completions") {
                     val request = call.receive<ChatCompletionRequest>()
                     handleChatCompletion(call, request)
+                }
+                post("/v1/embeddings") {
+                    val request = call.receive<EmbeddingRequest>()
+                    handleEmbeddings(call, request)
                 }
 
                 post("/v1/completions") {
@@ -97,6 +116,72 @@ class OpenAiServer(
         Log.i(TAG, "OpenAI API Server started on port $port")
     }
 
+    private suspend fun handleEmbeddings(call: ApplicationCall, request: EmbeddingRequest) {
+        if (request.model != EMBEDDING_MODEL_ID) {
+            call.respond(HttpStatusCode.NotFound, mapOf("error" to ("Embedding model not found: " + request.model)))
+            return
+        }
+        val inputs = when (val input = request.input) {
+            is JsonPrimitive -> if (input.isString) listOfNotNull(input.contentOrNull) else emptyList()
+            is JsonArray -> input.mapNotNull { item -> (item as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull }
+            else -> emptyList()
+        }
+        if (inputs.isEmpty() || (request.input is JsonArray && inputs.size != request.input.size)) {
+            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "input must be a string or an array of strings"))
+            return
+        }
+        val taskPrefix = when (request.input_type?.lowercase()) {
+            null, "query", "search_query" -> "task: search query | text: "
+            "document", "search_result" -> "task: search result | text: "
+            "classification" -> "task: classification | text: "
+            "clustering" -> "task: clustering | text: "
+            "similarity", "sentence_similarity" -> "task: sentence similarity | text: "
+            else -> {
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Unsupported input_type"))
+                return
+            }
+        }
+        try {
+            val vectors = embeddingMutex.withLock {
+                val engine = getEmbeddingEngine()
+                withContext(Dispatchers.IO) {
+                    inputs.mapIndexed { index, text ->
+                        val normalizedText = text.trim()
+                        if (normalizedText.isEmpty()) throw IllegalArgumentException("input[" + index + "] must not be empty")
+                        val prefixedText = if (normalizedText.startsWith("task:")) normalizedText else taskPrefix + normalizedText
+                        engine.computeEmbedding(listOf(InputData.Text(prefixedText))).embedding.toList()
+                    }
+                }
+            }
+            call.respond(EmbeddingResponse(
+                model = EMBEDDING_MODEL_ID,
+                data = vectors.mapIndexed { index, vector -> EmbeddingData(index = index, embedding = vector) }
+            ))
+        } catch (e: IllegalArgumentException) {
+            call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid embedding input")))
+        } catch (e: Exception) {
+            Log.e(TAG, "Embedding request failed", e)
+            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to ("Embedding inference failed: " + (e.message ?: "unknown error"))))
+        }
+    }
+
+    private suspend fun getEmbeddingEngine(): EmbeddingEngine {
+        embeddingEngine?.let { return it }
+        return withContext(Dispatchers.IO) {
+            embeddingEngine?.let { return@withContext it }
+            val modelFile = java.io.File(EMBEDDING_MODEL_PATH)
+            if (!modelFile.isFile) throw IllegalArgumentException("Embedding model file not found: " + EMBEDDING_MODEL_PATH)
+            val engine = EmbeddingEngine(
+                EmbeddingEngineConfig(
+                    modelPath = modelFile.absolutePath,
+                    backend = Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
+                )
+            )
+            engine.initialize()
+            embeddingEngine = engine
+            engine
+        }
+    }
     private suspend fun handleChatCompletion(call: ApplicationCall, request: ChatCompletionRequest) {
         val model = modelManagerViewModel.uiState.value.tasks
             .flatMap { it.models }
@@ -377,5 +462,7 @@ class OpenAiServer(
     fun stop() {
         server?.stop(1000, 2000)
         server = null
+        embeddingEngine?.close()
+        embeddingEngine = null
     }
 }
